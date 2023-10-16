@@ -1,8 +1,11 @@
-import { expect, it, describe } from "vitest";
-import {} from "../src";
+import { expect } from "@open-wc/testing";
 
-describe("packageName", () => {
-  it.todo("pass", () => {
-    expect(true).toBe(true);
+describe('myFunction', () => {
+  it('is always true', () => {
+    expect(true).to.equal(true);
+  });
+
+  it('is always false', () => {
+    expect(true).to.equal(false);
   });
 });
