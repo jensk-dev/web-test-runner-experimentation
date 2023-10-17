@@ -1,5 +1,4 @@
 import { resolve } from "node:path";
-import assert from "node:assert";
 import { CoverageConfig, SESSION_STATUS, TestResult, TestRunner, TestRunnerCoreConfig, TestSuiteResult } from "@web/test-runner-core";
 import { puppeteerLauncher } from "@web/test-runner-puppeteer";
 import { esbuildPlugin } from "@web/dev-server-esbuild";
@@ -67,7 +66,7 @@ const defaultConfig: TestRunnerCoreConfig = {
     sendKeysPlugin(),
     sendMousePlugin(),
     snapshotPlugin({ updateSnapshots: false }),
-    // stub for syntax checking
+    // no-op stub to enable syntax checking
     {
       name: 'syntax-checker',
       transformImport() {
@@ -77,10 +76,6 @@ const defaultConfig: TestRunnerCoreConfig = {
     nodeResolvePlugin(ROOT_DIR, false, undefined) // <-- required for node to resolve any dependencies used in the tests. In this case @open-wc/testing
   ],
 };
-
-// startTestRunner({
-//   config: defaultConfig,
-// });
 
 // eslint-disable-next-line unicorn/prefer-top-level-await
 (async () => {
@@ -123,11 +118,7 @@ const defaultConfig: TestRunnerCoreConfig = {
           console.error(err);
           console.error(session.logs);
         }
-      } else {
-        if (session.status !== SESSION_STATUS.FINISHED) {
-          return;
-        }
-
+      } else if (session.status === SESSION_STATUS.FINISHED) {
         const suites = session.testResults?.suites;
 
         if (!suites) {
