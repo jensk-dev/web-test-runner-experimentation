@@ -10,27 +10,27 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
-      "require": "./dist/index.cjs"
+      "require": "./dist/index.js"
     }
   },
-  "main": "./dist/index.cjs",
+  "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "files": [
     "dist"
   ],
   "scripts": {
-    "debug": "unbuild && node --inspect-brk dist/index.cjs",
-    "start": "unbuild && node dist/index.cjs",
-    "build": "unbuild",
+    "debug": "node --inspect-brk dist/index.js",
+    "build": "tsc",
+    "build:watch": "npm run tsc -- --watch",
+    "start": "npm run build && node dist/index.js",
     "dev": "vitest dev",
     "play": "jiti playground",
     "lint": "eslint --cache --ext .ts,.js,.mjs,.cjs . && prettier -c src test",
     "lint:fix": "eslint --cache --ext .ts,.js,.mjs,.cjs . --fix && prettier -c src test -w",
     "prepack": "pnpm run build",
     "release": "pnpm test && changelogen --release && npm publish && git push --follow-tags",
-    "test": "pnpm lint && pnpm test:types && vitest run --coverage",
-    "test:types": "tsc --noEmit --skipLibCheck"
+    "test": "pnpm lint && pnpm test:types && vitest run --coverage"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.2",
@@ -42,7 +42,6 @@
     "jiti": "^1.20.0",
     "prettier": "^3.0.3",
     "typescript": "^5.2.2",
-    "unbuild": "^2.0.0",
     "vitest": "^0.34.6"
   },
   "packageManager": "pnpm@8.6.12",
