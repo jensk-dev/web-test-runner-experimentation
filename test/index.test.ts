@@ -1,4 +1,4 @@
-import { expect } from "@open-wc/testing";
+import { expect } from "@esm-bundle/chai";
 
 describe('myFunction', () => {
   it('is always true', () => {
