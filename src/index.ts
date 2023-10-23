@@ -54,7 +54,10 @@ const testRunnerConfig: TestRunnerCoreConfig = {
       await next();
       if (context.path === "/" && typeof context.body === "string") {
         const testRunnerCommands = getHtmlPath(
-          `./${path.relative(ROOT_DIR, require.resolve("@web/test-runner-commands"))}`,
+          `./${path.relative(
+            ROOT_DIR,
+            require.resolve("@web/test-runner-commands"),
+          )}`,
         );
         context.body = context.body.replace(
           "</body>",
@@ -215,8 +218,16 @@ let runs = 0;
 
 function reportTestResult(testResult: TestResult, suite: TestSuiteResult) {
   if (testResult.passed) {
-    console.log(`✅ PASSED -> ${suite.name}.${testResult.name}`);
-  } else {
-    console.log(`❌ FAILED -> ${suite.name}.${testResult.name}`);
+    console.log(`✅ PASSED -> ${suite.name} ${testResult.name}`);
+  } else if (testResult.error) {
+    if (/Timeout of \d+ms exceeded./.test(testResult.error.message)) {
+      console.log(`⌛ TIMEOUT -> ${suite.name} ${testResult.name}`);
+    } else {
+      console.log(
+        `❌ FAILED -> ${suite.name} ${testResult.name} ${testResult.error}`,
+      );
+    }
+  } else if (testResult.skipped) {
+    console.log(`⬛ SKIPPED -> ${suite.name} ${testResult.name}`);
   }
 }
