@@ -1,7 +1,6 @@
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
-import fs from "fs/promises";
+import path from "node:path";
+
 import {
   CoverageConfig,
   SESSION_STATUS,
@@ -23,6 +22,7 @@ import {
   sendMousePlugin,
 } from "@web/test-runner-commands/plugins";
 import { nodeResolvePlugin } from "@web/dev-server";
+import { getHtmlPath } from "@web/dev-server-core";
 import { TestRunnerLogger } from "./logger.js";
 
 const secondMs = 1000;
@@ -36,11 +36,7 @@ const defaultCoverageConfig: CoverageConfig = {
   reporters: ["lcov"],
 };
 
-const ROOT_DIR = resolve(process.cwd());
-
-const STRYKER_VIRTUAL_FILE_NAME = fileURLToPath(
-  new URL("../virtual-stryker-file.js", import.meta.url),
-);
+const ROOT_DIR = process.cwd();
 
 const require = createRequire(import.meta.url);
 /**
@@ -48,12 +44,48 @@ const require = createRequire(import.meta.url);
  * Only difference is the use of puppeteerLauncher instead of chromeLauncher.
  */
 const testRunnerConfig: TestRunnerCoreConfig = {
-  browsers: [puppeteerLauncher({ launchOptions: { headless: false } })],
+  browsers: [puppeteerLauncher({ launchOptions: { headless: true } })],
   port: 8000,
   rootDir: ROOT_DIR,
   protocol: "http:",
   hostname: "localhost",
-  middleware: [],
+  middleware: [
+    async (context, next) => {
+      await next();
+      if (context.path === "/" && typeof context.body === "string") {
+        const testRunnerCommands = getHtmlPath(
+          `./${path.relative(ROOT_DIR, require.resolve("@web/test-runner-commands"))}`,
+        );
+        context.body = context.body.replace(
+          "</body>",
+          `
+          <script type="module">
+          import { executeServerCommand } from '${testRunnerCommands}';
+          const ns = globalThis.__stryker__ = globalThis.__stryker__ ?? {};
+
+          // Example of test filtering:
+          mocha.grep(/add/);
+
+          // Grab currently executing test
+          beforeEach(function() {
+            ns.currentTestId = this.currentTest?.fullTitle();
+          });
+          after(async() => {
+            // Report mutant coverage
+            await executeServerCommand('stryker-report', {
+              mutantCoverage: ns.mutantCoverage,
+
+              // Also report the test file that was executed
+              fileName: globalThis.__WTR_CONFIG__?.testFile
+            });
+          });
+          </script>
+          </body>`,
+        );
+        console.log(`👽 ${context.body}`);
+      }
+    },
+  ],
   reporters: [],
   coverage: true,
   watch: false,
@@ -69,53 +101,18 @@ const testRunnerConfig: TestRunnerCoreConfig = {
     path: require.resolve("@web/test-runner-mocha/dist/autorun.js"), // defaults when using `startWebTestRunner`
   },
   logger: new TestRunnerLogger(true),
-  files: ["test/**/*.test.ts", STRYKER_VIRTUAL_FILE_NAME],
+  files: ["test/**/*.test.ts"],
   // default plugins used by @web/test-runner
   plugins: [
     {
       name: "stryker-hook",
-      injectWebSocket: true,
-      serverStart(args) {
-        console.log(args.webSockets);
-        args.app.use(async (ctx, next) => {
-          await next();
-          if (ctx.path === "/test/calc.test.ts") {
-            ctx.body = await fs.readFile("test/calc.test.ts", "utf8");
-            ctx.body = `import { sendMessageWaitForResponse } from "/__web-dev-server__web-socket.js";
-const PARAM_SESSION_ID = "wtr-session-id";
-const sessionId = new URL(window.location.href).searchParams.get(
-  PARAM_SESSION_ID,
-);
-
-            ${ctx.body}
-
-after(async () => {
-  await sendMessageWaitForResponse({
-    type: "wtr-command",
-    sessionId,
-    command: "stryker-report",
-    payload: {
-      mutantCoverage: globalThis?.__stryker__?.mutantCoverage,
-    },
-  });
-});
-            `;
-            console.log(ctx.body);
-          }
-        });
-      },
-      serve(context) {
-        console.log("serve", context.path);
-      },
-      serverStop() {
-        console.log("serverStop");
-      },
       executeCommand(args) {
         if (args.command === "stryker-report") {
           console.log(
             "👽 Received mutation coverage:",
             JSON.stringify(args.payload),
           );
+          return true;
         }
       },
     },
@@ -168,12 +165,12 @@ let runs = 0;
 
     runner.on("finished", (passed) => {
       console.log(`successfully finished tests: ${passed}`);
-      // if (runs++ < 10) {
-      //   const ids = [...runner.sessions.all()].map(({ id }) => id);
-      //   console.log(ids);
-      //   runner.runTests(runner.sessions.all());
-      //   return;
-      // }
+      if (runs++ < 10) {
+        const ids = [...runner.sessions.all()].map(({ id }) => id);
+        console.log(ids);
+        runner.runTests(runner.sessions.all());
+        return;
+      }
       stop();
     });
 
