@@ -38,13 +38,22 @@ const defaultCoverageConfig: CoverageConfig = {
 
 const ROOT_DIR = process.cwd();
 
+function webUrl(module: string) {
+  return getHtmlPath(
+    `./${path.relative(
+      ROOT_DIR,
+      require.resolve(module),
+    )}`,
+  );
+}
+
 const require = createRequire(import.meta.url);
 /**
  * The default values that are calculated when using `startWebTestRunner` without a config.
  * Only difference is the use of puppeteerLauncher instead of chromeLauncher.
  */
 const testRunnerConfig: TestRunnerCoreConfig = {
-  browsers: [puppeteerLauncher({ launchOptions: { headless: true } })],
+  browsers: [puppeteerLauncher({ launchOptions: { headless: false } })],
   port: 8000,
   rootDir: ROOT_DIR,
   protocol: "http:",
@@ -53,17 +62,17 @@ const testRunnerConfig: TestRunnerCoreConfig = {
     async (context, next) => {
       await next();
       if (context.path === "/" && typeof context.body === "string") {
-        const testRunnerCommands = getHtmlPath(
-          `./${path.relative(
-            ROOT_DIR,
-            require.resolve("@web/test-runner-commands"),
-          )}`,
-        );
         context.body = context.body.replace(
           "</body>",
           `
           <script type="module">
-          import { executeServerCommand } from '${testRunnerCommands}';
+          import { executeServerCommand } from '${webUrl(
+            "@web/test-runner-commands",
+          )}';
+          import { getConfig } from '${webUrl(
+            "@web/test-runner-core/browser/session.js",
+          )}';
+
           const ns = globalThis.__stryker__ = globalThis.__stryker__ ?? {};
 
           // Example of test filtering:
@@ -75,11 +84,12 @@ const testRunnerConfig: TestRunnerCoreConfig = {
           });
           after(async() => {
             // Report mutant coverage
+            const { testFile } = await getConfig();
             await executeServerCommand('stryker-report', {
               mutantCoverage: ns.mutantCoverage,
 
               // Also report the test file that was executed
-              fileName: globalThis.__WTR_CONFIG__?.testFile
+              testFile,
             });
           });
           </script>
@@ -112,7 +122,7 @@ const testRunnerConfig: TestRunnerCoreConfig = {
       executeCommand(args) {
         if (args.command === "stryker-report") {
           console.log(
-            "👽 Received mutation coverage:",
+            "👽 Received stryker report:",
             JSON.stringify(args.payload),
           );
           return true;
