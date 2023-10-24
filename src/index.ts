@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
-import { resolve } from "node:path";
+import path from "node:path";
+
 import {
   CoverageConfig,
   SESSION_STATUS,
@@ -20,8 +21,8 @@ import {
   snapshotPlugin,
   sendMousePlugin,
 } from "@web/test-runner-commands/plugins";
-import { defaultReporter } from "@web/test-runner";
 import { nodeResolvePlugin } from "@web/dev-server";
+import { getHtmlPath } from "@web/dev-server-core";
 import { TestRunnerLogger } from "./logger.js";
 
 const secondMs = 1000;
@@ -35,23 +36,71 @@ const defaultCoverageConfig: CoverageConfig = {
   reporters: ["lcov"],
 };
 
-const ROOT_DIR = resolve(process.cwd());
+const ROOT_DIR = process.cwd();
 
-const STRYKER_VIRTUAL_FILE_NAME = "__stryker-hooks__.js";
+function webUrl(module: string) {
+  return getHtmlPath(
+    `./${path.relative(
+      ROOT_DIR,
+      require.resolve(module),
+    )}`,
+  );
+}
 
 const require = createRequire(import.meta.url);
 /**
  * The default values that are calculated when using `startWebTestRunner` without a config.
  * Only difference is the use of puppeteerLauncher instead of chromeLauncher.
  */
-const defaultConfig: TestRunnerCoreConfig = {
-  browsers: [puppeteerLauncher()],
+const testRunnerConfig: TestRunnerCoreConfig = {
+  browsers: [puppeteerLauncher({ launchOptions: { headless: false } })],
   port: 8000,
   rootDir: ROOT_DIR,
   protocol: "http:",
   hostname: "localhost",
-  middleware: [],
-  reporters: [defaultReporter()],
+  middleware: [
+    async (context, next) => {
+      await next();
+      if (context.path === "/" && typeof context.body === "string") {
+        context.body = context.body.replace(
+          "</body>",
+          `
+          <script type="module">
+          import { executeServerCommand } from '${webUrl(
+            "@web/test-runner-commands",
+          )}';
+          import { getConfig } from '${webUrl(
+            "@web/test-runner-core/browser/session.js",
+          )}';
+
+          const ns = globalThis.__stryker__ = globalThis.__stryker__ ?? {};
+
+          // Example of test filtering:
+          mocha.grep(/add/);
+
+          // Grab currently executing test
+          beforeEach(function() {
+            ns.currentTestId = this.currentTest?.fullTitle();
+          });
+          after(async() => {
+            // Report mutant coverage
+            const { testFile } = await getConfig();
+            await executeServerCommand('stryker-report', {
+              mutantCoverage: ns.mutantCoverage,
+
+              // Also report the test file that was executed
+              testFile,
+            });
+          });
+          </script>
+          </body>`,
+        );
+        console.log(`👽 ${context.body}`);
+      }
+    },
+  ],
+  reporters: [],
+  coverage: true,
   watch: false,
   concurrentBrowsers: 2,
   concurrency: 1,
@@ -64,10 +113,22 @@ const defaultConfig: TestRunnerCoreConfig = {
     // eslint-disable-next-line unicorn/prefer-module
     path: require.resolve("@web/test-runner-mocha/dist/autorun.js"), // defaults when using `startWebTestRunner`
   },
-  logger: new TestRunnerLogger(false),
-  files: [STRYKER_VIRTUAL_FILE_NAME, "test/**/*.test.ts"],
+  logger: new TestRunnerLogger(true),
+  files: ["test/**/*.test.ts"],
   // default plugins used by @web/test-runner
   plugins: [
+    {
+      name: "stryker-hook",
+      executeCommand(args) {
+        if (args.command === "stryker-report") {
+          console.log(
+            "👽 Received stryker report:",
+            JSON.stringify(args.payload),
+          );
+          return true;
+        }
+      },
+    },
     esbuildPlugin({ ts: true }),
     setViewportPlugin(),
     emulateMediaPlugin(),
@@ -76,12 +137,6 @@ const defaultConfig: TestRunnerCoreConfig = {
     filePlugin(),
     sendKeysPlugin(),
     sendMousePlugin(),
-    {
-      name: "stryker-hook",
-      serve(context) {
-        console.log("serve", context.path);
-      },
-    },
     snapshotPlugin({ updateSnapshots: false }),
     // no-op stub to enable syntax checking
     {
@@ -99,7 +154,7 @@ let runs = 0;
 // eslint-disable-next-line unicorn/prefer-top-level-await
 (async () => {
   // eslint-disable-next-line no-debugger
-  const runner = new TestRunner(defaultConfig);
+  const runner = new TestRunner(testRunnerConfig);
 
   try {
     function stop() {
@@ -173,8 +228,16 @@ let runs = 0;
 
 function reportTestResult(testResult: TestResult, suite: TestSuiteResult) {
   if (testResult.passed) {
-    console.log(`✅ PASSED -> ${suite.name}.${testResult.name}`);
-  } else {
-    console.log(`❌ FAILED -> ${suite.name}.${testResult.name}`);
+    console.log(`✅ PASSED -> ${suite.name} ${testResult.name}`);
+  } else if (testResult.error) {
+    if (/Timeout of \d+ms exceeded./.test(testResult.error.message)) {
+      console.log(`⌛ TIMEOUT -> ${suite.name} ${testResult.name}`);
+    } else {
+      console.log(
+        `❌ FAILED -> ${suite.name} ${testResult.name} ${testResult.error}`,
+      );
+    }
+  } else if (testResult.skipped) {
+    console.log(`⬛ SKIPPED -> ${suite.name} ${testResult.name}`);
   }
 }
